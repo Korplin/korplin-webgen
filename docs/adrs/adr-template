@@ -1,6 +1,8 @@
-# ADR Naming:
-ADR file must be name in 
+NOTES ->
 
+Name ADR file itself in a such way that it would be easy to retrieve just from file name what decisions exactly have been made.
+
+TEMPLATE ->
 
 # ADR-001: Forgejo as Version Control System and Git Hosting Platform
 
@@ -8,6 +10,7 @@ ADR file must be name in
 |---|---|
 | ADR ID | ADR-001 |
 | Title | Forgejo as Version Control System and Git Hosting Platform |
+| File name | adr-0001-forgejo-as-version-control-system-and-git-hosting-platform.md |
 | Status | Accepted |
 | Date | 2025-04-10 |
 | Deciders | Engineering Lead, DevOps Lead |
