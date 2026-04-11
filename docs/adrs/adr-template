@@ -1,1 +1,239 @@
+# ADR Naming:
+ADR file must be name in 
 
+
+# ADR-001: Forgejo as Version Control System and Git Hosting Platform
+
+| Field | Value |
+|---|---|
+| ADR ID | ADR-001 |
+| Title | Forgejo as Version Control System and Git Hosting Platform |
+| Status | Accepted |
+| Date | 2025-04-10 |
+| Deciders | Engineering Lead, DevOps Lead |
+| Supersedes | — |
+| Superseded by | — |
+| Related ADRs | ADR-002 (Plane as Project Management Tool) |
+
+---
+
+## 1. Context and Problem Statement
+
+The AI web agency automation pipeline requires a self-hosted version control system that serves as the foundational layer for GitOps-driven infrastructure, CI/CD execution, and event-driven agent orchestration. All agent code, pipeline definitions, prompt templates, infrastructure-as-code, and workflow configurations must be stored, versioned, and deployable from a single authoritative source.
+
+The VCS is not merely a code repository in this architecture. It is the **system of record** for the entire automated pipeline. State transitions, agent triggers, and infrastructure deployments are all derived from repository events. The platform must therefore satisfy requirements beyond standard source control — it must provide a reliable, automatable webhook infrastructure, a GitHub-compatible API surface (so that tooling written against the GitHub API works without modification), and a resource footprint that coexists with other services on a single Hetzner CX32 node.
+
+Additionally, the selection must align with the following non-negotiable constraints established for this project:
+
+- Full self-hostability with no mandatory external dependencies at runtime
+- Open source with active governance and a credible long-term maintenance trajectory
+- No per-seat or per-feature licensing costs
+- GitOps-native: infrastructure and workflow state must be derivable from repository contents alone
+
+---
+
+## 2. Decision Drivers
+
+- **Self-hosting requirement**: All infrastructure must run within operator-controlled environments. SaaS platforms are excluded regardless of API quality.
+- **GitHub API compatibility**: Agent scripts, Windmill workflow steps, and CI/CD tooling are written against the GitHub REST API. The VCS must accept these requests without client-side modification.
+- **Webhook reliability for event-driven orchestration**: Tier transitions in the pipeline are triggered by repository events (pushes, label changes, PR state changes). Webhook delivery must be reliable and carry signed payloads.
+- **Resource efficiency**: The VCS shares a host with Windmill, LangGraph agent services, Playwright, Firecrawl, and Plane. The combined memory budget is 8GB. The VCS must operate within ~300MB under normal load.
+- **Forgejo Actions compatibility**: CI/CD pipelines are written in GitHub Actions YAML syntax. The VCS must execute these natively without a separate CI runner configuration.
+- **Governance and supply chain trust**: The VCS platform handles all source code including agent prompts, API key injection patterns, and infrastructure definitions. The project must be governed transparently with auditable release processes.
+
+---
+
+## 3. Considered Options
+
+### Option A: Forgejo (selected)
+### Option B: Gitea
+### Option C: GitLab Community Edition
+### Option D: GitHub (SaaS)
+### Option E: Gogs
+
+---
+
+## 4. Decision Outcome
+
+**Chosen option: Forgejo (Option A)**
+
+Forgejo is selected as the version control and Git hosting platform for the AI web agency pipeline. It satisfies all non-negotiable constraints and outperforms alternatives on governance, webhook reliability, and GitHub API fidelity — the three criteria most critical to this architecture's event-driven design.
+
+### Positive consequences
+
+- Agent scripts and Windmill workflow steps written against the GitHub API require no modification; only the base URL changes.
+- Forgejo Actions executes GitHub Actions YAML natively, meaning CI/CD pipelines are portable to GitHub if the hosting model changes in future.
+- Memory footprint (~200MB under load) leaves sufficient headroom for all co-hosted services on the target Hetzner CX32 node.
+- Community governance under the Codeberg e.V. structure provides a credible long-term maintenance trajectory independent of any single commercial entity.
+- Webhook payloads are structured identically to GitHub's, enabling Windmill to use a single webhook handler implementation for both local Forgejo events and any future GitHub integration.
+
+### Negative consequences
+
+- Forgejo's integration ecosystem is thinner than GitHub's or GitLab's. Integrations with third-party services (Slack, Linear, etc.) require manual webhook configuration rather than native connectors.
+- The PM tool (Plane) explicitly lists GitHub and GitLab as supported VCS integrations via its Silo service. Forgejo integration relies on GitHub API compatibility and must be validated; a fallback to manual webhook plumbing in Windmill is the contingency.
+- No managed SLA for uptime. Operator is responsible for backup, monitoring, and availability of the Forgejo instance.
+
+---
+
+## 5. Pros and Cons of Options
+
+### Option A: Forgejo
+
+**Pros**
+- Full GitHub REST API and webhook payload compatibility by explicit project commitment
+- Forgejo Actions: native execution of GitHub Actions YAML syntax
+- ~200MB RAM footprint — lowest of all evaluated options
+- AGPL v3.0 licensed; fully open source with no enterprise feature gating
+- Governed by Codeberg e.V., a non-profit — credible long-term independence from commercial pressure
+- Active development with faster release cadence than Gitea post-fork
+- Signed webhook payloads with HMAC-SHA256 for secure event handling
+- Docker-native deployment; integrates cleanly with Coolify
+
+**Cons**
+- Smaller community than GitLab or GitHub
+- Integration marketplace does not exist; all third-party wiring is manual
+- Plane's Silo service does not explicitly list Forgejo; compatibility via GitHub API path requires validation
+
+---
+
+### Option B: Gitea
+
+**Pros**
+- GitHub API compatible (Forgejo is a fork of Gitea, so both share this)
+- Very lightweight (~200MB)
+- Widely deployed; large body of community documentation
+
+**Cons**
+- Governance concerns following 2022 commercialisation moves that prompted the Forgejo fork
+- Development velocity has slowed relative to Forgejo post-fork
+- Webhook reliability has known gaps that Forgejo has patched
+- Selecting Gitea over Forgejo provides no technical advantage while accepting worse governance posture
+
+---
+
+### Option C: GitLab Community Edition
+
+**Pros**
+- Most complete built-in PM, CI/CD, and security scanning feature set of all options
+- Comprehensive REST and GraphQL APIs
+- Native integrations with many third-party tools
+- Strong webhook coverage including push, MR, pipeline, and deployment events
+
+**Cons**
+- Requires 4–8GB RAM minimum; incompatible with co-hosting constraints on CX32
+- Would require a dedicated server, introducing additional infrastructure cost and operational complexity
+- Feature set significantly exceeds requirements — the PM layer is superseded by Plane (ADR-002), and the CI/CD layer is covered by Forgejo Actions
+- Not GitHub API compatible; any tooling written against GitHub API requires rewriting
+
+---
+
+### Option D: GitHub (SaaS)
+
+**Pros**
+- Gold standard API, Actions ecosystem, and integration library
+- Zero operational overhead for hosting
+
+**Cons**
+- SaaS: violates self-hosting requirement
+- Source code and pipeline definitions leave operator control
+- Per-seat pricing at scale
+- Excluded by constraint
+
+---
+
+### Option E: Gogs
+
+**Pros**
+- Extremely lightweight (~100MB)
+- Simple operational model
+
+**Cons**
+- Development is largely stagnant
+- Webhook reliability is poor relative to Forgejo
+- No native CI/CD runner
+- API surface is significantly narrower than GitHub's; compatibility claims are not maintained
+- Not a credible long-term choice for a production pipeline
+
+---
+
+## 6. Implementation Notes
+
+### Deployment
+Forgejo is deployed as a Docker container managed by Coolify on the Hetzner CX32 node. The `docker-compose.yml` for Forgejo is committed to the infrastructure repository and is the authoritative deployment definition.
+
+```yaml
+services:
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:latest
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    volumes:
+      - forgejo-data:/data
+    ports:
+      - "3000:3000"
+      - "22:22"
+    restart: unless-stopped
+```
+
+### Repository structure
+All pipeline components follow a monorepo layout within Forgejo:
+
+```
+/
+├── .forgejo/workflows/     # Forgejo Actions CI/CD definitions
+├── docs/adr/               # Architecture Decision Records (this file)
+├── tier-1-scout/           # Agent code per tier
+├── tier-2-research/
+├── tier-3-builder/
+├── tier-4-qa/
+├── tier-5-notifier/
+├── tier-6-publisher/
+├── windmill/               # Windmill workflow definitions
+├── infrastructure/         # Docker Compose, Coolify config
+└── prompts/                # Versioned prompt templates
+```
+
+### Webhook configuration
+All Windmill trigger endpoints are registered as Forgejo webhooks with HMAC-SHA256 signature verification. Webhook payloads are validated in every Windmill script before processing:
+
+```python
+import hmac, hashlib
+
+def verify_forgejo_webhook(payload: bytes, signature: str, secret: str) -> bool:
+    expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(f"sha256={expected}", signature)
+```
+
+### Backup
+Forgejo data volume is included in the Hetzner automated snapshot schedule. A secondary backup script commits a Forgejo dump to an off-site S3-compatible bucket (Hetzner Object Storage) on a daily cron via Forgejo Actions.
+
+---
+
+## 7. Compliance and Security Considerations
+
+- All secrets used by agent pipelines are stored in Windmill's secret store, not in Forgejo repository contents.
+- Repository access is controlled via Forgejo's team-based permission model. Agent service accounts are granted minimum required scopes (read for most tiers, write only for Tier 6 publisher).
+- Forgejo instance is accessible only within the Hetzner private network; external access is proxied through Caddy with TLS termination managed by Coolify.
+- Dependency on `codeberg.org` container registry is noted; a mirror to Hetzner Container Registry is recommended for production hardening.
+
+---
+
+## 8. Review and Revision Criteria
+
+This decision should be revisited if any of the following conditions arise:
+
+- Forgejo diverges significantly from GitHub API compatibility in a way that breaks existing tooling
+- Plane's Silo service integration with Forgejo via the GitHub API path fails validation and no workaround is acceptable
+- Team size or repository count grows to a point where GitLab CE's richer native PM and security scanning features justify the resource cost of a dedicated server
+- A requirement for hosted SLA-backed uptime emerges that cannot be met by self-managed infrastructure
+
+---
+
+## 9. References
+
+- Forgejo project: https://forgejo.org
+- Forgejo API documentation: https://forgejo.org/docs/latest/api/
+- Codeberg e.V. governance: https://codeberg.org/Codeberg/org
+- Forgejo Actions documentation: https://forgejo.org/docs/latest/user/actions/
+- ADR-002: Plane as Project Management Tool
